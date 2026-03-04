@@ -2,6 +2,8 @@
 
 A Model Context Protocol (MCP) server that provides access to the Fastmail API, enabling AI assistants to interact with email, contacts, and calendar data.
 
+> **Fork note:** This is a maintained fork of [MadLlama25/fastmail-mcp](https://github.com/MadLlama25/fastmail-mcp) with added calendar CRUD, MCP SDK v1.x upgrade, and Zod-based input validation.
+
 ## Features
 
 ### Core Email Operations
@@ -24,9 +26,10 @@ A Model Context Protocol (MCP) server that provides access to the Fastmail API, 
 - Search contacts by name or email
 
 ### Calendar Operations
-- List all calendars and calendar events
-- Get specific calendar events by ID
-- Create new calendar events with participants and details
+- List, create, and manage calendars
+- Full CRUD for calendar events (create, read, update, delete)
+- Date range filtering and recurrence expansion
+- Support for participants, time zones, recurrence rules, and alerts
 
 ### Identity & Account Management
 - List available sending identities
@@ -87,7 +90,7 @@ Default to `main` branch:
 
 ```bash
 FASTMAIL_API_TOKEN="your_token" FASTMAIL_BASE_URL="https://api.fastmail.com" \
-  npx --yes github:MadLlama25/fastmail-mcp fastmail-mcp
+  npx --yes github:davepeckjr/fastmail-mcp fastmail-mcp
 ```
 
 Windows PowerShell:
@@ -102,7 +105,7 @@ Pin to a tagged release:
 
 ```bash
 FASTMAIL_API_TOKEN="your_token" \
-  npx --yes github:MadLlama25/fastmail-mcp@v1.6.1 fastmail-mcp
+  npx --yes github:davepeckjr/fastmail-mcp@v1.8.0 fastmail-mcp
 ```
 
 ## Install as a Claude Desktop Extension (DXT)
@@ -124,7 +127,7 @@ You can install this server as a Desktop Extension for Claude Desktop using the 
 
 3. Use any of the tools (e.g. `get_recent_emails`).
 
-## Available Tools (31 Total)
+## Available Tools
 
 **🎯 Most Popular Tools:**
 - **check_function_availability**: Check what's available and get setup guidance  
@@ -191,12 +194,18 @@ You can install this server as a Desktop Extension for Claude Desktop using the 
 ### Calendar Tools
 
 - **list_calendars**: List all calendars
-- **list_calendar_events**: List calendar events
-  - Parameters: `calendarId` (optional), `limit` (default: 50)
+- **create_calendar**: Create a new calendar
+  - Parameters: `name` (required), `color` (optional), `isVisible` (optional), `isSubscribed` (optional)
+- **list_calendar_events**: List calendar events, optionally filtered by date range
+  - Parameters: `calendarId` (optional), `limit` (default: 50), `after` (optional, ISO 8601), `before` (optional, ISO 8601), `expandRecurrences` (optional)
 - **get_calendar_event**: Get a specific calendar event by ID
   - Parameters: `eventId` (required)
 - **create_calendar_event**: Create a new calendar event
-  - Parameters: `calendarId` (required), `title` (required), `description` (optional), `start` (required, ISO 8601), `end` (required, ISO 8601), `location` (optional), `participants` (optional array)
+  - Parameters: `calendarId` (required), `title` (required), `description` (optional), `start` (required, ISO 8601), `end` or `duration` (at least one required), `location` (optional), `participants` (optional array), `timeZone` (optional), `showWithoutTime` (optional), `freeBusyStatus` (optional), `recurrenceRules` (optional), `alerts` (optional)
+- **update_calendar_event**: Update an existing calendar event
+  - Parameters: `eventId` (required), plus any fields to change
+- **delete_calendar_event**: Delete a calendar event
+  - Parameters: `eventId` (required)
 
 ### Identity & Testing Tools
 
@@ -228,6 +237,7 @@ Fastmail applies rate limits to API requests. The server handles standard rate l
 ```
 src/
 ├── index.ts              # Main MCP server implementation
+├── schemas.ts           # Zod input validation schemas
 ├── auth.ts              # Authentication handling
 ├── jmap-client.ts       # JMAP client wrapper
 └── contacts-calendar.ts # Contacts and calendar extensions
