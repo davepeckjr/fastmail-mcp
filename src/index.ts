@@ -296,7 +296,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'list_calendar_events',
-        description: 'List events from a calendar',
+        description: 'List events from a calendar, optionally filtered by date range',
         inputSchema: {
           type: 'object',
           properties: {
@@ -308,6 +308,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'number',
               description: 'Maximum number of events to return (default: 50)',
               default: 50,
+            },
+            after: {
+              type: 'string',
+              description: 'Only return events starting at or after this UTC datetime (ISO 8601)',
+            },
+            before: {
+              type: 'string',
+              description: 'Only return events starting before this UTC datetime (ISO 8601)',
+            },
+            expandRecurrences: {
+              type: 'boolean',
+              description: 'Expand recurring events into individual occurrences (default: false)',
             },
           },
         },
@@ -346,11 +358,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             start: {
               type: 'string',
-              description: 'Start time in ISO 8601 format',
+              description: 'Start time in ISO 8601 format (e.g. 2025-06-15T10:00:00)',
             },
             end: {
               type: 'string',
-              description: 'End time in ISO 8601 format',
+              description: 'End time in ISO 8601 format. Provide end or duration (at least one required)',
+            },
+            duration: {
+              type: 'string',
+              description: 'ISO 8601 duration (e.g. PT1H, PT30M, P1D). Alternative to end',
             },
             location: {
               type: 'string',
@@ -367,8 +383,73 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               },
               description: 'Event participants (optional)',
             },
+            timeZone: {
+              type: 'string',
+              description: 'IANA time zone (e.g. America/New_York). Optional.',
+            },
+            showWithoutTime: {
+              type: 'boolean',
+              description: 'All-day event flag (default: false)',
+            },
+            freeBusyStatus: {
+              type: 'string',
+              description: 'Free/busy status: free, busy, tentative, unavailable',
+            },
+            recurrenceRules: {
+              type: 'array',
+              description: 'JMAP RecurrenceRule objects (e.g. [{"@type":"RecurrenceRule","frequency":"weekly"}])',
+            },
+            alerts: {
+              type: 'object',
+              description: 'JMAP Alert map keyed by alert id (e.g. {"alert1":{"@type":"Alert","trigger":{"@type":"OffsetTrigger","offset":"-PT15M"},"action":"display"}})',
+            },
           },
-          required: ['calendarId', 'title', 'start', 'end'],
+          required: ['calendarId', 'title', 'start'],
+        },
+      },
+      {
+        name: 'update_calendar_event',
+        description: 'Update an existing calendar event. Only provided fields are changed.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            eventId: {
+              type: 'string',
+              description: 'ID of the event to update',
+            },
+            title: { type: 'string', description: 'New title' },
+            description: { type: 'string', description: 'New description' },
+            start: { type: 'string', description: 'New start time (ISO 8601)' },
+            end: { type: 'string', description: 'New end time (ISO 8601). Converted to duration.' },
+            duration: { type: 'string', description: 'New ISO 8601 duration' },
+            location: { type: 'string', description: 'New location' },
+            participants: {
+              type: 'array',
+              items: { type: 'object', properties: { email: { type: 'string' }, name: { type: 'string' } } },
+              description: 'New participants list (replaces existing)',
+            },
+            calendarId: { type: 'string', description: 'Move event to this calendar' },
+            timeZone: { type: 'string', description: 'New IANA time zone' },
+            showWithoutTime: { type: 'boolean', description: 'All-day event flag' },
+            freeBusyStatus: { type: 'string', description: 'Free/busy status' },
+            recurrenceRules: { type: 'array', description: 'New recurrence rules' },
+            alerts: { type: 'object', description: 'New alerts map' },
+          },
+          required: ['eventId'],
+        },
+      },
+      {
+        name: 'delete_calendar_event',
+        description: 'Delete a calendar event',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            eventId: {
+              type: 'string',
+              description: 'ID of the event to delete',
+            },
+          },
+          required: ['eventId'],
         },
       },
       {
@@ -833,9 +914,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'list_calendar_events': {
-        const { calendarId, limit = 50 } = args as any;
+        const { calendarId, limit = 50, after, before, expandRecurrences } = args as any;
         const contactsClient = initializeContactsCalendarClient();
-        const events = await contactsClient.getCalendarEvents(calendarId, limit);
+        const events = await contactsClient.getCalendarEvents(calendarId, limit, {
+          after, before, expandRecurrences,
+        });
         return {
           content: [
             {
@@ -864,25 +947,60 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'create_calendar_event': {
-        const { calendarId, title, description, start, end, location, participants } = args as any;
-        if (!calendarId || !title || !start || !end) {
-          throw new McpError(ErrorCode.InvalidParams, 'calendarId, title, start, and end are required');
+        const { calendarId, title, description, start, end, duration,
+                location, participants, timeZone, showWithoutTime,
+                freeBusyStatus, recurrenceRules, alerts } = args as any;
+        if (!calendarId || !title || !start) {
+          throw new McpError(ErrorCode.InvalidParams, 'calendarId, title, and start are required');
+        }
+        if (!end && !duration) {
+          throw new McpError(ErrorCode.InvalidParams, 'Either end or duration must be provided');
         }
         const contactsClient = initializeContactsCalendarClient();
         const eventId = await contactsClient.createCalendarEvent({
-          calendarId,
-          title,
-          description,
-          start,
-          end,
-          location,
-          participants,
+          calendarId, title, description, start, end, duration,
+          location, participants, timeZone, showWithoutTime,
+          freeBusyStatus, recurrenceRules, alerts,
         });
         return {
           content: [
             {
               type: 'text',
               text: `Calendar event created successfully. Event ID: ${eventId}`,
+            },
+          ],
+        };
+      }
+
+      case 'update_calendar_event': {
+        const { eventId, ...updates } = args as any;
+        if (!eventId) {
+          throw new McpError(ErrorCode.InvalidParams, 'eventId is required');
+        }
+        const contactsClient = initializeContactsCalendarClient();
+        await contactsClient.updateCalendarEvent(eventId, updates);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Calendar event ${eventId} updated successfully.`,
+            },
+          ],
+        };
+      }
+
+      case 'delete_calendar_event': {
+        const { eventId } = args as any;
+        if (!eventId) {
+          throw new McpError(ErrorCode.InvalidParams, 'eventId is required');
+        }
+        const contactsClient = initializeContactsCalendarClient();
+        await contactsClient.deleteCalendarEvent(eventId);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Calendar event ${eventId} deleted successfully.`,
             },
           ],
         };
