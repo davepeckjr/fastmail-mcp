@@ -295,6 +295,32 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: 'create_calendar',
+        description: 'Create a new calendar',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: {
+              type: 'string',
+              description: 'Name of the calendar (e.g. "Work", "Personal")',
+            },
+            color: {
+              type: 'string',
+              description: 'Calendar color as hex string (e.g. "#FF5733"). Optional.',
+            },
+            isVisible: {
+              type: 'boolean',
+              description: 'Whether the calendar is visible by default (default: true)',
+            },
+            isSubscribed: {
+              type: 'boolean',
+              description: 'Whether the user is subscribed to this calendar (default: true)',
+            },
+          },
+          required: ['name'],
+        },
+      },
+      {
         name: 'list_calendar_events',
         description: 'List events from a calendar, optionally filtered by date range',
         inputSchema: {
@@ -908,6 +934,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: JSON.stringify(calendars, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'create_calendar': {
+        const { name, color, isVisible, isSubscribed } = args as any;
+        if (!name) {
+          throw new McpError(ErrorCode.InvalidParams, 'name is required');
+        }
+        const contactsClient = initializeContactsCalendarClient();
+        const calendarId = await contactsClient.createCalendar({
+          name, color, isVisible, isSubscribed,
+        });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Calendar "${name}" created successfully. Calendar ID: ${calendarId}`,
             },
           ],
         };

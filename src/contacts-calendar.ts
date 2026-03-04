@@ -197,6 +197,47 @@ export class ContactsCalendarClient extends JmapClient {
     }
   }
 
+  async createCalendar(calendar: {
+    name: string;
+    color?: string;
+    isVisible?: boolean;
+    isSubscribed?: boolean;
+  }): Promise<string> {
+    const hasPermission = await this.checkCalendarsPermission();
+    if (!hasPermission) {
+      throw new Error('Calendar access not available. This account may not have JMAP calendar permissions enabled.');
+    }
+
+    const session = await this.getSession();
+
+    const calendarObject: Record<string, any> = {
+      name: calendar.name,
+    };
+    if (calendar.color !== undefined) calendarObject.color = calendar.color;
+    if (calendar.isVisible !== undefined) calendarObject.isVisible = calendar.isVisible;
+    if (calendar.isSubscribed !== undefined) calendarObject.isSubscribed = calendar.isSubscribed;
+
+    const request: JmapRequest = {
+      using: ['urn:ietf:params:jmap:core', 'urn:ietf:params:jmap:calendars'],
+      methodCalls: [
+        ['Calendar/set', {
+          accountId: session.accountId,
+          create: { newCalendar: calendarObject }
+        }, 'createCalendar']
+      ]
+    };
+
+    const response = await this.makeRequest(request);
+    const result = response.methodResponses[0][1];
+
+    if (result.notCreated && result.notCreated.newCalendar) {
+      const err = result.notCreated.newCalendar;
+      throw new Error(`Failed to create calendar: ${err.description || JSON.stringify(err)}`);
+    }
+
+    return result.created.newCalendar.id;
+  }
+
   async getCalendarEvents(
     calendarId?: string,
     limit: number = 50,
